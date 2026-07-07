@@ -1,4 +1,7 @@
+#!/usr/bin/env python3
 import os, sys, time, math, random
+
+__version__ = "0.1.0"
 
 # --- config ---
 PALETTE = [(20,0,0), (80,10,0), (160,40,10), (220,90,30), (255,140,60), (255,200,120)]
@@ -75,6 +78,14 @@ def render(u, v, h, w):
     sys.stdout.flush()
 
 def main():
+    if "--version" in sys.argv or "-V" in sys.argv:
+        print(f"coralbloom {__version__}")
+        return
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("coralbloom - infinite reaction-diffusion animation in the terminal")
+        print("usage: coralbloom")
+        print("Ctrl-C to quit.")
+        return
     hide_cursor()
     clear()
     try:
