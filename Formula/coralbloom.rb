@@ -12,7 +12,9 @@ class Coralbloom < Formula
   def install
     bin.install "core.py" => "coralbloom"
     # Pin shebang to brew's exact python; python@3.x is keg-only and not on PATH.
-    inreplace bin/"coralbloom", %r{^#!.*$}, "#!#{Formula["python@3.13"].opt_bin}/python3"
+    # Use a literal string match (not a regex) so the first line is replaced
+    # cleanly instead of being truncated mid-path.
+    inreplace bin/"coralbloom", "#!/usr/bin/env python3", "#!#{Formula["python@3.13"].opt_bin}/python3.13"
   end
 
   test do
