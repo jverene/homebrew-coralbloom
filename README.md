@@ -6,7 +6,7 @@ An infinite reaction-diffusion fluid animation rendered in the terminal using
 ## Install (Homebrew)
 
 ```sh
-brew tap jverene/coralbloom https://github.com/jverene/coralbloom
+brew tap jverene/coralbloom
 brew install coralbloom
 coralbloom            # Ctrl-C to quit
 ```
