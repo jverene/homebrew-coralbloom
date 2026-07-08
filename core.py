@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 import os, sys, time, math, random
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 # --- config ---
 PALETTE = [(160,40,10), (210,80,25), (245,120,45), (255,155,65), (255,190,105), (255,220,150)]
-F, K, Du, Dv = 0.035, 0.060, 0.16, 0.08
-DT = 1.0
-IGNITE = 0.25   # v concentration above which a cell lights up; below this stays transparent
+IGNITE = 0.25   # palette value (and lower bound) above which a cell lights up; below stays transparent
 FADE   = 0.008  # opacity decay per frame of life (~3.75s to fully fade at 33fps)
+
+# --- bloom growth model ---
+# A "walker" is a growing tip: it advances in a heading, paints lit cells, and
+# occasionally branches a child heading forward (never back the way it came).
+# Each seed becomes one flower; new seeds spawn elsewhere so the screen fills
+# with many independent blooms that grow, fade, and die.
+SPEED         = 0.6      # cells/frame a tip advances
+WALKER_LIFE   = 45       # frames a tip lives before expiring
+BRANCH_PROB   = 0.05     # chance/frame to fan out a child
+BRANCH_SPREAD = 0.9      # max +/- radians a child deviates from parent heading (~50deg)
+MAX_GEN       = 4        # how many generations deep a flower can branch
+JITTER        = 0.25     # per-frame heading wander (~+-7deg) for organic curve
+TARGET_ALIVE  = 14       # medium density: cap on simultaneously growing tips
+SPAWN_GAP     = (50, 110)  # random frames between new bloom seeds
 
 # --- terminal utils ---
 def termsize():
@@ -24,38 +36,70 @@ def clear(): sys.stdout.write("\033[2J\033[H")
 def rgb_fg(r,g,b): return f"\033[38;2;{r};{g};{b}m"
 def reset(): return "\033[0m"
 
-# --- grid ---
-def init_grid(w, h):
-    u = [[1.0]*w for _ in range(h)]
-    v = [[0.0]*w for _ in range(h)]
-    # seed random blobs
-    for _ in range(6):
-        cx, cy = random.randint(w//4, 3*w//4), random.randint(h//4, 3*h//4)
-        r = random.randint(4, 10)
-        for y in range(h):
-            for x in range(w):
-                d = math.hypot(x-cx, y-cy)
-                if d < r:
-                    v[y][x] = 0.7 + random.random()*0.3
-                    u[y][x] = 0.2 + random.random()*0.2
-    return u, v
+# --- bloom model ---
+# Each walker is a growing tip: (x, y, angle, gen, tone, age).
+#   x, y     float position
+#   angle    heading in radians
+#   gen      generation depth (0 = seed)
+#   tone     fixed palette value for the whole bloom (0..1)
+#   age      frames this tip has lived
+#
+# The walkers paint into the same locked/age grids the renderer reads, so all
+# of the existing color, glyph, and translucency machinery is reused unchanged.
 
-def laplace(g, y, x, h, w):
-    return (g[y][x] + g[(y-1)%h][x] + g[(y+1)%h][x] +
-            g[y][(x-1)%w] + g[y][(x+1)%w]) * 0.2
-
-def step(u, v, h, w):
-    un = [[0.0]*w for _ in range(h)]
-    vn = [[0.0]*w for _ in range(h)]
+def grow(walkers, locked, age, h, w, spawn_state):
+    # 1) age every lit cell toward translucency; fully faded cells are released
     for y in range(h):
+        row_l = locked[y]
+        row_a = age[y]
         for x in range(w):
-            uyx, vyx = u[y][x], v[y][x]
-            uv2 = uyx * vyx * vyx
-            Lu = laplace(u, y, x, h, w)
-            Lv = laplace(v, y, x, h, w)
-            un[y][x] = uyx + DT * (Du * (Lu - uyx) - uv2 + F * (1.0 - uyx))
-            vn[y][x] = vyx + DT * (Dv * (Lv - vyx) + uv2 - (F + K) * vyx)
-    return un, vn
+            if row_l[x] is not None:
+                row_a[x] += 1
+                if row_a[x] * FADE >= 1.0:
+                    row_l[x] = None
+                    row_a[x] = 0.0
+
+    # 2) advance each walker; build a fresh list (some tips die, some branch)
+    alive = []
+    for (x, y, ang, gen, tone, wa) in walkers:
+        wa += 1
+        ang += (random.random() - 0.5) * JITTER
+        x += math.cos(ang) * SPEED
+        y += math.sin(ang) * SPEED
+        rx, ry = int(x), int(y)
+        # die at the screen edge -- no wraparound
+        if 0 <= rx < w and 0 <= ry < h:
+            if locked[ry][rx] is None:
+                locked[ry][rx] = palette_color(tone)
+                age[ry][rx] = 0.0
+            else:
+                # already-lit cell: refresh it (re-brighten revisited spots)
+                age[ry][rx] = 0.0
+            if wa <= WALKER_LIFE:
+                alive.append((x, y, ang, gen, tone, wa))
+                # fan out a forward child -- never back the way the parent came
+                if gen < MAX_GEN and random.random() < BRANCH_PROB:
+                    child_ang = ang + (1.0 if random.random() < 0.5 else -1.0) * random.random() * BRANCH_SPREAD
+                    alive.append((x, y, child_ang, gen + 1, tone, 0))
+
+    # 3) seed new blooms so the screen stays populated with many flowers.
+    # The very first frame (no walkers and nothing started yet) places one tip
+    # at screen center -- literally "start as one block, then it blooms."
+    if not spawn_state.get("started"):
+        spawn_state["started"] = True
+        tone = random.uniform(0.6, 1.0)
+        alive.append((w / 2.0, h / 2.0, random.uniform(0, 2 * math.pi), 0, tone, 0))
+        spawn_state["cooldown"] = random.randint(*SPAWN_GAP)
+    else:
+        spawn_state["cooldown"] -= 1
+        if len(alive) < TARGET_ALIVE and spawn_state["cooldown"] <= 0:
+            tone = random.uniform(0.6, 1.0)
+            sx = random.uniform(2, w - 3)
+            sy = random.uniform(2, h - 3)
+            alive.append((sx, sy, random.uniform(0, 2 * math.pi), 0, tone, 0))
+            spawn_state["cooldown"] = random.randint(*SPAWN_GAP)
+
+    return alive
 
 def palette_color(val):
     # linearly interpolate across the palette over the LIT range [IGNITE, 1.0]
@@ -101,7 +145,7 @@ def main():
         print(f"coralbloom {__version__}")
         return
     if "--help" in sys.argv or "-h" in sys.argv:
-        print("coralbloom - infinite reaction-diffusion animation in the terminal")
+        print("coralbloom - infinite blooming animation in the terminal")
         print("usage: coralbloom")
         print("Ctrl-C to quit.")
         return
@@ -110,37 +154,18 @@ def main():
     try:
         while True:
             cols, rows = termsize()
-            # each char = one sim row (shade glyph expresses translucency)
+            # each char = one sim cell (shade glyph expresses translucency)
             W, H = cols, rows
-            u, v = init_grid(W, H)
             locked = [[None]*W for _ in range(H)]   # per-cell locked RGB color
             age    = [[0.0]*W for _ in range(H)]    # per-cell age, in frames
-            # drift parameters slowly so it never stagnates
-            phase = 0.0
+            walkers     = []                          # growing tips
+            spawn_state = {"started": False, "cooldown": 0}
             while True:
                 nc, nr = termsize()
                 if nc != cols or nr != rows:
                     break  # resize -> reinit
                 render(locked, age, H, W)
-                u, v = step(u, v, H, W)
-                # lock colors on first light-up, then age toward translucency
-                for y in range(H):
-                    for x in range(W):
-                        if locked[y][x] is None:
-                            if v[y][x] > IGNITE:
-                                locked[y][x] = palette_color(v[y][x])
-                                age[y][x] = 0.0
-                        else:
-                            age[y][x] += 1
-                            if age[y][x] * FADE >= 1.0:
-                                # fully faded -> release so it can re-light later
-                                locked[y][x] = None
-                                age[y][x] = 0.0
-                phase += 0.005
-                # slowly drift F/K to keep patterns evolving
-                global F, K
-                F = 0.032 + 0.006 * math.sin(phase)
-                K = 0.058 + 0.006 * math.cos(phase * 0.7)
+                walkers = grow(walkers, locked, age, H, W, spawn_state)
                 time.sleep(0.03)
     except KeyboardInterrupt:
         pass
