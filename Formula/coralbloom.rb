@@ -1,8 +1,8 @@
 class Coralbloom < Formula
   desc "Infinite reaction-diffusion fluid animation rendered in the terminal"
   homepage "https://github.com/jverene/homebrew-coralbloom"
-  url "https://github.com/jverene/homebrew-coralbloom/archive/refs/tags/v0.1.2.tar.gz"
-  sha256 "2609280732dce9a86d1da80191c70d37b7726483171afb4cb2ec48cda8e1a54a"
+  url "https://github.com/jverene/homebrew-coralbloom/archive/refs/tags/v0.1.3.tar.gz"
+  sha256 "102c62fdcbbc30269838be2280a70aa2e12c9e862d2a7fae61c483105b037f86"
   license "MIT"
   head "https://github.com/jverene/homebrew-coralbloom.git", branch: "main"
 
@@ -17,7 +17,7 @@ class Coralbloom < Formula
   end
 
   test do
-    assert_match "0.1.2", shell_output("#{bin}/coralbloom --version")
+    assert_match "0.1.3", shell_output("#{bin}/coralbloom --version")
   end
 
   livecheck do
