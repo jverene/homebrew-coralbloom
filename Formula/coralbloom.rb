@@ -1,8 +1,8 @@
 class Coralbloom < Formula
   desc "Infinite reaction-diffusion fluid animation rendered in the terminal"
   homepage "https://github.com/jverene/homebrew-coralbloom"
-  url "https://github.com/jverene/homebrew-coralbloom/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "22027871771e138a3bbd623814962a334d0bcac41e6246e342204a24debbde8c"
+  url "https://github.com/jverene/homebrew-coralbloom/archive/refs/tags/v0.1.1.tar.gz"
+  sha256 "5074890840dd053dca0fc1bebff0e599f0775cd31bb4bc6461cc62fa7adb3ef6"
   license "MIT"
   head "https://github.com/jverene/homebrew-coralbloom.git", branch: "main"
 
