@@ -7,6 +7,8 @@ __version__ = "0.1.0"
 PALETTE = [(20,0,0), (80,10,0), (160,40,10), (220,90,30), (255,140,60), (255,200,120)]
 F, K, Du, Dv = 0.035, 0.060, 0.16, 0.08
 DT = 1.0
+IGNITE = 0.08   # v concentration above which a cell lights up and locks its color
+FADE   = 0.008  # opacity decay per frame of life (~3.75s to fully fade at 33fps)
 
 # --- terminal utils ---
 def termsize():
@@ -20,7 +22,6 @@ def hide_cursor(): sys.stdout.write("\033[?25l")
 def show_cursor(): sys.stdout.write("\033[?25h")
 def clear(): sys.stdout.write("\033[2J\033[H")
 def rgb_fg(r,g,b): return f"\033[38;2;{r};{g};{b}m"
-def rgb_bg(r,g,b): return f"\033[48;2;{r};{g};{b}m"
 def reset(): return "\033[0m"
 
 # --- grid ---
@@ -66,19 +67,31 @@ def palette_color(val):
     r2, g2, b2 = PALETTE[i + 1]
     return (int(r1 + (r2-r1)*f), int(g1 + (g2-g1)*f), int(b1 + (b2-b1)*f))
 
-def render(u, v, h, w):
+def shade_glyph(opacity):
+    # map opacity to a coverage glyph; None => emit a space (see-through)
+    if opacity > 0.875: return "█"
+    if opacity > 0.625: return "▓"
+    if opacity > 0.375: return "▒"
+    if opacity > 0.125: return "░"
+    return None
+
+def render(locked, age, h, w):
     out = []
-    # use half-blocks for 2x vertical res
-    for y in range(0, h-1, 2):
+    # one char = one sim row; unlit or fully-faded cells fall through to a space
+    for y in range(h):
         row = []
         for x in range(w):
-            c1 = palette_color(v[y][x])
-            c2 = palette_color(v[y+1][x])
-            if c1 == (0,0,0) and c2 == (0,0,0):
+            c = locked[y][x]
+            if c is None:
+                row.append(" ")
+                continue
+            opacity = max(0.0, 1.0 - age[y][x] * FADE)
+            glyph = shade_glyph(opacity)
+            if glyph is None:
                 row.append(" ")
             else:
-                row.append(rgb_bg(*c2) + rgb_fg(*c1) + "▀" + reset())
-        out.append("".join(row))
+                row.append(rgb_fg(*c) + glyph)
+        out.append("".join(row) + reset())
     sys.stdout.write("\033[H" + "\n".join(out))
     sys.stdout.flush()
 
@@ -96,17 +109,32 @@ def main():
     try:
         while True:
             cols, rows = termsize()
-            # each char = 2 vertical pixels
-            W, H = cols, rows * 2
+            # each char = one sim row (shade glyph expresses translucency)
+            W, H = cols, rows
             u, v = init_grid(W, H)
+            locked = [[None]*W for _ in range(H)]   # per-cell locked RGB color
+            age    = [[0.0]*W for _ in range(H)]    # per-cell age, in frames
             # drift parameters slowly so it never stagnates
             phase = 0.0
             while True:
                 nc, nr = termsize()
                 if nc != cols or nr != rows:
                     break  # resize -> reinit
-                render(u, v, H, W)
+                render(locked, age, H, W)
                 u, v = step(u, v, H, W)
+                # lock colors on first light-up, then age toward translucency
+                for y in range(H):
+                    for x in range(W):
+                        if locked[y][x] is None:
+                            if v[y][x] > IGNITE:
+                                locked[y][x] = palette_color(v[y][x])
+                                age[y][x] = 0.0
+                        else:
+                            age[y][x] += 1
+                            if age[y][x] * FADE >= 1.0:
+                                # fully faded -> release so it can re-light later
+                                locked[y][x] = None
+                                age[y][x] = 0.0
                 phase += 0.005
                 # slowly drift F/K to keep patterns evolving
                 global F, K
