@@ -4,10 +4,10 @@ import os, sys, time, math, random
 __version__ = "0.1.0"
 
 # --- config ---
-PALETTE = [(20,0,0), (80,10,0), (160,40,10), (220,90,30), (255,140,60), (255,200,120)]
+PALETTE = [(160,40,10), (210,80,25), (245,120,45), (255,155,65), (255,190,105), (255,220,150)]
 F, K, Du, Dv = 0.035, 0.060, 0.16, 0.08
 DT = 1.0
-IGNITE = 0.08   # v concentration above which a cell lights up and locks its color
+IGNITE = 0.25   # v concentration above which a cell lights up; below this stays transparent
 FADE   = 0.008  # opacity decay per frame of life (~3.75s to fully fade at 33fps)
 
 # --- terminal utils ---
@@ -58,9 +58,10 @@ def step(u, v, h, w):
     return un, vn
 
 def palette_color(val):
-    # linearly interpolate across the palette for a smooth gradient
-    val = max(0.0, min(1.0, val))
-    t = val * (len(PALETTE) - 1)
+    # linearly interpolate across the palette over the LIT range [IGNITE, 1.0]
+    # so even the dimmest lit cell reads as orange, never brown/black
+    val = max(IGNITE, min(1.0, val))
+    t = (val - IGNITE) / (1.0 - IGNITE) * (len(PALETTE) - 1)
     i = max(0, min(len(PALETTE) - 2, int(t)))
     f = t - i
     r1, g1, b1 = PALETTE[i]
