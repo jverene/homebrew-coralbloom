@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import os, sys, time, math, random
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 # --- config ---
 PALETTE = [(160,40,10), (210,80,25), (245,120,45), (255,155,65), (255,190,105), (255,220,150)]
 IGNITE = 0.25   # palette value (and lower bound) above which a cell lights up; below stays transparent
-FADE   = 0.008  # opacity decay per frame of life (~3.75s to fully fade at 33fps)
+FADE   = 0.020  # opacity decay per frame of life (~1.5s to fully fade at 33fps)
 
 # --- bloom growth model ---
 # A "walker" is a growing tip: it advances in a heading, paints lit cells, and
