@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os, sys, time, math, random
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # --- config ---
 PALETTE = [(160,40,10), (210,80,25), (245,120,45), (255,155,65), (255,190,105), (255,220,150)]

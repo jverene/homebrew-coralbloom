@@ -17,7 +17,7 @@ class Coralbloom < Formula
   end
 
   test do
-    assert_match "0.1.0", shell_output("#{bin}/coralbloom --version")
+    assert_match "0.1.1", shell_output("#{bin}/coralbloom --version")
   end
 
   livecheck do
