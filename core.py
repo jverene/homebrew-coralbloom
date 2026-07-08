@@ -56,10 +56,15 @@ def step(u, v, h, w):
             vn[y][x] = vyx + DT * (Dv * (Lv - vyx) + uv2 - (F + K) * vyx)
     return un, vn
 
-def color(val):
-    i = int(val * (len(PALETTE)-1))
-    i = max(0, min(len(PALETTE)-1, i))
-    return PALETTE[i]
+def palette_color(val):
+    # linearly interpolate across the palette for a smooth gradient
+    val = max(0.0, min(1.0, val))
+    t = val * (len(PALETTE) - 1)
+    i = max(0, min(len(PALETTE) - 2, int(t)))
+    f = t - i
+    r1, g1, b1 = PALETTE[i]
+    r2, g2, b2 = PALETTE[i + 1]
+    return (int(r1 + (r2-r1)*f), int(g1 + (g2-g1)*f), int(b1 + (b2-b1)*f))
 
 def render(u, v, h, w):
     out = []
@@ -67,8 +72,8 @@ def render(u, v, h, w):
     for y in range(0, h-1, 2):
         row = []
         for x in range(w):
-            c1 = color(v[y][x])
-            c2 = color(v[y+1][x])
+            c1 = palette_color(v[y][x])
+            c2 = palette_color(v[y+1][x])
             if c1 == (0,0,0) and c2 == (0,0,0):
                 row.append(" ")
             else:
