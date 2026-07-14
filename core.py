@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os, sys, time, math, random
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 # --- config ---
 PALETTE = [(160,40,10), (210,80,25), (245,120,45), (255,155,65), (255,190,105), (255,220,150)]
@@ -12,13 +12,16 @@ FADE   = 0.020  # opacity decay per frame of life (~1.5s to fully fade at 33fps)
 # A "walker" is a growing tip: it advances in a heading, paints lit cells, and
 # occasionally branches a child heading forward (never back the way it came).
 # It starts from exactly one seed at screen center and wraps around at the
-# edges (toroidal). Tips die naturally with age, but the lineage is immortal:
-# the very last walker alive can never expire, so the bloom never goes extinct.
+# edges (toroidal). Branching is population-regulated -- sparse populations
+# branch aggressively, crowded ones barely branch at all -- so the bloom
+# self-regulates around TARGET_POP instead of blooming then collapsing.
+# Tips never become sterile, and the lineage is immortal: the last walker
+# alive can never expire, so the bloom never goes extinct.
 SPEED         = 0.6      # cells/frame a tip advances
 WALKER_LIFE   = 45       # frames a tip lives before expiring
-BRANCH_PROB   = 0.05     # chance/frame to fan out a child
+TARGET_POP    = 18       # population the branch rate is calibrated to sustain
+BRANCH_MAX    = 0.07     # peak branch prob/frame when nearly extinct
 BRANCH_SPREAD = 0.9      # max +/- radians a child deviates from parent heading (~50deg)
-MAX_GEN       = 4        # how many generations deep a flower can branch
 JITTER        = 0.25     # per-frame heading wander (~+-7deg) for organic curve
 
 # --- terminal utils ---
@@ -36,15 +39,26 @@ def rgb_fg(r,g,b): return f"\033[38;2;{r};{g};{b}m"
 def reset(): return "\033[0m"
 
 # --- bloom model ---
-# Each walker is a growing tip: (x, y, angle, gen, tone, age).
+# Each walker is a growing tip: (x, y, angle, tone, age).
 #   x, y     float position (unwrapped; wrapped only when painting)
 #   angle    heading in radians
-#   gen      generation depth (0 = seed)
 #   tone     fixed palette value for the whole bloom (0..1)
 #   age      frames this tip has lived
 #
 # The walkers paint into the same locked/age grids the renderer reads, so all
 # of the existing color, glyph, and translucency machinery is reused unchanged.
+
+def branch_prob(pop):
+    # Per-frame chance a surviving tip fannies out a child.
+    # High when the population is sparse, replacement-rate around TARGET_POP,
+    # and zero once crowded -- so births track deaths and the bloom
+    # self-regulates instead of blooming then collapsing to a single worm.
+    if pop >= TARGET_POP * 1.7:
+        return 0.0
+    # linear ramp: BRANCH_MAX at pop=0, ~replacement (1/WALKER_LIFE) near target
+    base = 1.0 / WALKER_LIFE
+    x = pop / TARGET_POP
+    return BRANCH_MAX * max(0.0, (1.7 - x) / 1.7) + base * max(0.0, 1.0 - x)
 
 def grow(walkers, locked, age, h, w, spawn_state):
     # 1) age every lit cell toward translucency; fully faded cells are released
@@ -59,11 +73,12 @@ def grow(walkers, locked, age, h, w, spawn_state):
                     row_a[x] = 0.0
 
     # 2) advance each walker; build a fresh list (some tips die, some branch).
-    #    Remember the most recently updated tip's state so step (4) can
-    #    resurrect it in place if it turns out to be the last survivor.
+    #    Branch probability is fixed for the whole frame from the start-of-frame
+    #    population, so feedback is clean rather than order-dependent.
+    p_branch = branch_prob(len(walkers))
     alive = []
     last_state = None
-    for (x, y, ang, gen, tone, wa) in walkers:
+    for (x, y, ang, tone, wa) in walkers:
         wa += 1
         ang += (random.random() - 0.5) * JITTER
         x += math.cos(ang) * SPEED
@@ -77,27 +92,28 @@ def grow(walkers, locked, age, h, w, spawn_state):
         else:
             # already-lit cell: refresh it (re-brighten revisited spots)
             age[ry][rx] = 0.0
-        last_state = (x, y, ang, gen, tone)
+        last_state = (x, y, ang, tone)
         if wa <= WALKER_LIFE:
-            alive.append((x, y, ang, gen, tone, wa))
-            # fan out a forward child -- never back the way the parent came
-            if gen < MAX_GEN and random.random() < BRANCH_PROB:
+            alive.append((x, y, ang, tone, wa))
+            # fan out a forward child -- never back the way the parent came.
+            # tips never become sterile; only crowding suppresses branching.
+            if random.random() < p_branch:
                 child_ang = ang + (1.0 if random.random() < 0.5 else -1.0) * random.random() * BRANCH_SPREAD
-                alive.append((x, y, child_ang, gen + 1, tone, 0))
+                alive.append((x, y, child_ang, tone, 0))
 
     # 3) single seed at screen center on the very first frame, then never again.
-    # No further spawns: the bloom is left to grow, wrap, and thin out on its own.
+    # No further spawns: the bloom is left to grow, wrap, and self-regulate.
     if not spawn_state.get("started"):
         spawn_state["started"] = True
         tone = random.uniform(0.6, 1.0)
-        alive.append((w / 2.0, h / 2.0, random.uniform(0, 2 * math.pi), 0, tone, 0))
+        alive.append((w / 2.0, h / 2.0, random.uniform(0, 2 * math.pi), tone, 0))
 
     # 4) the lineage is immortal: if every tip has died of age, resurrect the
     #    last survivor in place (same position, heading, and color; fresh life)
     #    so the bloom keeps growing continuously and never goes extinct.
     if spawn_state.get("started") and not alive and last_state is not None:
-        x, y, ang, gen, tone = last_state
-        alive.append((x, y, ang, gen, tone, 0))
+        x, y, ang, tone = last_state
+        alive.append((x, y, ang, tone, 0))
 
     return alive
 
